@@ -9,9 +9,9 @@
 [Tao Lu](https://inspirelt.github.io/), [Kerui Ren](https://github.com/tongji-rkr), [Yichen Jin](), [Xudong Xu](https://scholar.google.com.hk/citations?user=D8VMkA8AAAAJ&hl=en), [Mulin Yu](https://scholar.google.com/citations?user=w0Od3hQAAAAJ), [Jiangmiao Pang](https://oceanpang.github.io/), [Feng Zhao](https://scholar.google.co.uk/citations?user=r6CvuOUAAAAJ&hl=en), [Dahua Lin](http://dahua.site/), [Bo Dai<sup>†</sup>](https://daibo.info/) <br />
 
 ## News
-**[2024.07.08]** We thank [Alex Nasa](https://huggingface.co/alexnasa) for providing us with an excellent [Huggingface demo](https://huggingface.co/spaces/alexnasa/AnySplat).
+**[2025.07.08]** We thank [Alex Nasa](https://huggingface.co/alexnasa) for providing us with an excellent [Huggingface demo](https://huggingface.co/spaces/alexnasa/AnySplat).
 
-**[2024.06.30]** We release the training & inference code.
+**[2025.06.30]** We release the training & inference code.
 
 ## Overview
 <p align="center">
