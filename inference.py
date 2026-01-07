@@ -12,7 +12,7 @@ from src.utils.image import process_image
 
 def main():
     # Load the model from Hugging Face
-    model = AnySplat.from_pretrained("lhjiang/anysplat")
+    model = AnySplat.from_pretrained("./model/AnySplat")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
     model.eval()

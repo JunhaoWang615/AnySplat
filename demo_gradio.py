@@ -204,7 +204,7 @@ if __name__ == "__main__":
     
     # Load model
     model = AnySplat.from_pretrained(
-        "lhjiang/anysplat"
+        "./model/AnySplat"
     )
     model = model.to(device)
     model.eval()
