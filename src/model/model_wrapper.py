@@ -290,7 +290,7 @@ class ModelWrapper(LightningModule):
             self.step_tracker.set_step(self.global_step)
         
         del batch
-        if self.global_step % 50 == 0:
+        if self.global_step % 25 == 0:
             gc.collect()
             torch.cuda.empty_cache()
 
@@ -528,6 +528,8 @@ class ModelWrapper(LightningModule):
         colored_diff_map = vis_depth_map(diff_map[0], near=torch.tensor(1e-4, device=diff_map.device), far=torch.tensor(1.0, device=diff_map.device))
         model_depth_pred = depth_dict["depth"].squeeze(-1)[0]
         model_depth_pred = vis_depth_map(model_depth_pred)
+
+        depth_gt = vis_depth_map(batch["context"]["depth"][0])
         
         render_normal = (get_normal_map(output.depth.flatten(0, 1), batch["context"]["intrinsics"].flatten(0, 1)).permute(0, 3, 1, 2) + 1) / 2.
         pred_normal = (get_normal_map(depth_dict['depth'].flatten(0, 1).squeeze(-1), batch["context"]["intrinsics"].flatten(0, 1)).permute(0, 3, 1, 2) + 1) / 2.
@@ -536,6 +538,7 @@ class ModelWrapper(LightningModule):
             add_label(vcat(*context), "Context"),
             add_label(vcat(*rgb_gt), "Target (Ground Truth)"),
             add_label(vcat(*rgb_pred), "Target (Prediction)"),
+            add_label(vcat(*depth_gt), "Depth (Ground Truth)"),
             add_label(vcat(*depth_pred), "Depth (Prediction)"),
             add_label(vcat(*model_depth_pred), "Depth (VGGT Prediction)"),
             add_label(vcat(*render_normal), "Normal (Prediction)"),
@@ -592,11 +595,11 @@ class ModelWrapper(LightningModule):
             ).items():
                 self.logger.log_image(k, [prep_image(image)], step=self.global_step)
         
-        # Run video validation step.
-        self.render_video_interpolation(batch)
-        self.render_video_wobble(batch)
-        if self.train_cfg.extended_visualization:
-            self.render_video_interpolation_exaggerated(batch)
+        # # Run video validation step.
+        # self.render_video_interpolation(batch)
+        # self.render_video_wobble(batch)
+        # if self.train_cfg.extended_visualization:
+        #     self.render_video_interpolation_exaggerated(batch)
 
     @rank_zero_only
     def render_video_wobble(self, batch: BatchedExample) -> None:
