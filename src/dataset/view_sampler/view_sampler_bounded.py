@@ -42,95 +42,105 @@ class ViewSamplerBounded(ViewSampler[ViewSamplerBoundedCfg]):
     ]:
         num_views, _, _ = extrinsics.shape
 
-        # Compute the context view spacing based on the current global step.
-        if self.stage == "test":
-            # When testing, always use the full gap.
-            max_gap = self.cfg.max_distance_between_context_views
-            min_gap = self.cfg.max_distance_between_context_views
-        # elif self.cfg.warm_up_steps > 0:
-        #     max_gap = self.schedule(
-        #         self.cfg.initial_max_distance_between_context_views,
-        #         self.cfg.max_distance_between_context_views,
-        #     )
-        #     min_gap = self.schedule(
-        #         self.cfg.initial_min_distance_between_context_views,
-        #         self.cfg.min_distance_between_context_views,
+        # # Compute the context view spacing based on the current global step.
+        # if self.stage == "test":
+        #     # When testing, always use the full gap.
+        #     max_gap = self.cfg.max_distance_between_context_views
+        #     min_gap = self.cfg.max_distance_between_context_views
+        # # elif self.cfg.warm_up_steps > 0:
+        # #     max_gap = self.schedule(
+        # #         self.cfg.initial_max_distance_between_context_views,
+        # #         self.cfg.max_distance_between_context_views,
+        # #     )
+        # #     min_gap = self.schedule(
+        # #         self.cfg.initial_min_distance_between_context_views,
+        # #         self.cfg.min_distance_between_context_views,
+        # #     )
+        # # else:
+        # #     max_gap = self.cfg.max_distance_between_context_views
+        # #     min_gap = self.cfg.min_distance_between_context_views
+
+        # min_gap, max_gap = self.num_ctxt_gap_mapping[num_context_views]
+        # max_gap = min(max_gap, num_views-1)
+
+        # # Pick the gap between the context views.
+        # if not self.cameras_are_circular:
+        #     max_gap = min(num_views - 1, max_gap)
+        # min_gap = max(2 * self.cfg.min_distance_to_context_views, min_gap)
+        # if max_gap < min_gap:
+        #     raise ValueError("Example does not have enough frames!")
+        # context_gap = torch.randint(
+        #     min_gap,
+        #     max_gap + 1,
+        #     size=tuple(),
+        #     device=device,
+        # ).item()
+
+        # # Pick the left and right context indices.
+        # index_context_left = torch.randint(
+        #     num_views if self.cameras_are_circular else num_views - context_gap,
+        #     size=tuple(),
+        #     device=device,
+        # ).item()
+        # if self.stage == "test":
+        #     index_context_left = index_context_left * 0
+        # index_context_right = index_context_left + context_gap
+
+        # if self.is_overfitting:
+        #     index_context_left *= 0
+        #     index_context_right *= 0
+        #     index_context_right += max_gap
+
+        # # Pick the target view indices.
+        # if self.stage == "test":
+        #     # When testing, pick all.
+        #     index_target = torch.arange(
+        #         index_context_left,
+        #         index_context_right + 1,
+        #         device=device,
         #     )
         # else:
-        #     max_gap = self.cfg.max_distance_between_context_views
-        #     min_gap = self.cfg.min_distance_between_context_views
+        #     # When training or validating (visualizing), pick at random.
+        #     index_target = torch.randint(
+        #         index_context_left + self.cfg.min_distance_to_context_views,
+        #         index_context_right + 1 - self.cfg.min_distance_to_context_views,
+        #         size=(self.cfg.num_target_views,),
+        #         device=device,
+        #     )
 
-        min_gap, max_gap = self.num_ctxt_gap_mapping[num_context_views]
-        max_gap = min(max_gap, num_views-1)
-        # Pick the gap between the context views.
-        if not self.cameras_are_circular:
-            max_gap = min(num_views - 1, max_gap)
-        min_gap = max(2 * self.cfg.min_distance_to_context_views, min_gap)
-        if max_gap < min_gap:
-            raise ValueError("Example does not have enough frames!")
-        context_gap = torch.randint(
-            min_gap,
-            max_gap + 1,
-            size=tuple(),
-            device=device,
-        ).item()
-
-        # Pick the left and right context indices.
-        index_context_left = torch.randint(
-            num_views if self.cameras_are_circular else num_views - context_gap,
-            size=tuple(),
-            device=device,
-        ).item()
-        if self.stage == "test":
-            index_context_left = index_context_left * 0
-        index_context_right = index_context_left + context_gap
-
-        if self.is_overfitting:
-            index_context_left *= 0
-            index_context_right *= 0
-            index_context_right += max_gap
-
-        # Pick the target view indices.
-        if self.stage == "test":
-            # When testing, pick all.
-            index_target = torch.arange(
-                index_context_left,
-                index_context_right + 1,
-                device=device,
-            )
-        else:
-            # When training or validating (visualizing), pick at random.
-            index_target = torch.randint(
-                index_context_left + self.cfg.min_distance_to_context_views,
-                index_context_right + 1 - self.cfg.min_distance_to_context_views,
-                size=(self.cfg.num_target_views,),
-                device=device,
-            )
-
-        # Apply modulo for circular datasets.
-        if self.cameras_are_circular:
-            index_target %= num_views
-            index_context_right %= num_views
+        # # Apply modulo for circular datasets.
+        # if self.cameras_are_circular:
+        #     index_target %= num_views
+        #     index_context_right %= num_views
         
-        # If more than two context views are desired, pick extra context views between
-        # the left and right ones.
-        if num_context_views > 2:
-            num_extra_views = num_context_views - 2
-            extra_views = []
-            while len(set(extra_views)) != num_extra_views:
-                extra_views = torch.randint(
-                    index_context_left + 1,
-                    index_context_right,
-                    (num_extra_views,),
-                ).tolist()
-        else:
-            extra_views = []
+        # # If more than two context views are desired, pick extra context views between
+        # # the left and right ones.
+        # if num_context_views > 2:
+        #     num_extra_views = num_context_views - 2
+        #     extra_views = []
+        #     while len(set(extra_views)) != num_extra_views:
+        #         extra_views = torch.randint(
+        #             index_context_left + 1,
+        #             index_context_right,
+        #             (num_extra_views,),
+        #         ).tolist()
+        # else:
+        #     extra_views = []
+
+        # overlap = torch.tensor([0.5], dtype=torch.float32, device=device)  # dummy
+
+        # # return (
+        # #     torch.tensor((index_context_left, *extra_views, index_context_right)),
+        # #     index_target,
+        # #     overlap
+        # # )
 
         overlap = torch.tensor([0.5], dtype=torch.float32, device=device)  # dummy
-
+        num_views = extrinsics.shape[0]
+        all_indices = torch.arange(num_views, device=device)
         return (
-            torch.tensor((index_context_left, *extra_views, index_context_right)),
-            index_target,
+            all_indices,
+            all_indices,
             overlap
         )
 
