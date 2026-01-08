@@ -84,7 +84,7 @@ class DatasetDL3DV(Dataset):
         self.scene_ids = {}
         self.scenes = {}
         index = 0
-        with ThreadPoolExecutor(max_workers=32) as executor:
+        with ThreadPoolExecutor(max_workers=4) as executor:
             futures = [executor.submit(self.load_jsons, scene_path) for scene_path in self.data_list]
             for future in as_completed(futures):
                 scene_frames, scene_id = future.result()
@@ -135,7 +135,7 @@ class DatasetDL3DV(Dataset):
             # Create a list to store futures with their original indices
             futures_with_idx = []
             for idx, file_path in enumerate(frames):
-                file_path = file_path["file_path"].replace("images", "images_4")
+                file_path = file_path["file_path"].replace("images", "images")
                 futures_with_idx.append(
                     (
                         idx,
