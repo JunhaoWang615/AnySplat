@@ -19,6 +19,7 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.model.model import get_model
 from src.misc.weight_modify import checkpoint_filter_fn
+from src.model.model.anysplat import AnySplat
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -42,6 +43,66 @@ with install_import_hook(
 
 def cyan(text: str) -> str:
     return f"{Fore.CYAN}{text}{Fore.RESET}"
+
+
+def load_weights_into_model(model, pretrained_path, device):
+    import torch, os
+
+    if not os.path.exists(pretrained_path):
+        print(f"Pretrained path {pretrained_path} not found. Skip loading.")
+        return model
+
+    # If pretrained_path is a HF-style directory, try from_pretrained to get a source model
+    if os.path.isdir(pretrained_path):
+        try:
+            # Try to use HF mixin to read weights (local_files_only to avoid network)
+            src_model = AnySplat.from_pretrained(pretrained_path, local_files_only=True)
+            src_state = src_model.state_dict()
+            del src_model
+        except Exception:
+            # fallback to torch.load for files inside directory (e.g., pytorch_model.bin)
+            # search for common filenames
+            candidates = ["pytorch_model.bin", "model.pt", "model.pth", "weights.pt"]
+            file_found = None
+            for f in candidates:
+                p = os.path.join(pretrained_path, f)
+                if os.path.exists(p):
+                    file_found = p
+                    break
+            if file_found is None:
+                print(f"No recognized weight file found in {pretrained_path}")
+                return model
+            ckpt = torch.load(file_found, map_location="cpu")
+            src_state = ckpt.get("state_dict", ckpt)
+    else:
+        # pretrained_path is a file
+        ckpt = torch.load(pretrained_path, map_location="cpu")
+        src_state = ckpt.get("state_dict", ckpt)
+
+    # strip common prefixes (Lightning, DataParallel...)
+    def strip_prefix(state, prefixes=("module.", "model.")):
+        new = {}
+        for k, v in state.items():
+            nk = k
+            for p in prefixes:
+                if k.startswith(p):
+                    nk = k[len(p):]
+                    break
+            new[nk] = v
+        return new
+
+    src_state = strip_prefix(src_state)
+
+    # Try direct strict load first, else fallback to non-strict
+    try:
+        model.load_state_dict(src_state, strict=True)
+        print("Loaded pretrained weights (strict=True).")
+    except Exception as e:
+        print(f"Strict load failed: {e}\nTrying strict=False (partial load).")
+        res = model.load_state_dict(src_state, strict=False)
+        # print("Load result:", res)
+    model.to(device)
+    return model
 
 
 @hydra.main(
@@ -129,6 +190,7 @@ def train(cfg_dict: DictConfig):
     
     model = get_model(cfg.model.encoder, cfg.model.decoder)
     
+    model = load_weights_into_model(model, "./model/AnySplat", device="cuda" if torch.cuda.is_available() else "cpu")
     model_wrapper = ModelWrapper(
         cfg.optimizer,
         cfg.test,

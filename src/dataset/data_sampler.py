@@ -180,7 +180,7 @@ class DynamicBatchSampler(Sampler):
                 # Sample random image number and aspect ratio
                 random_image_num = int(np.random.choice(self.possible_nums, p=self.normalized_weights))
                 random_ps_h = np.random.randint(low=(self.h_range[0] // 14), high=(self.h_range[1] // 14)+1)
-
+# 为什么是随机ps_h,这里理论上是固定的，因为dataset已经resize好了,所以后面没有使用这个随机shape
                 # Update sampler parameters
                 self.sampler.update_parameters(
                     image_num=random_image_num,

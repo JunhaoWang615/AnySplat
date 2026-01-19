@@ -19,7 +19,7 @@ import torch.nn.functional as F
 from ..geometry.projection import get_fov
 from .dataset import DatasetCfgCommon
 from .shims.augmentation_shim import apply_augmentation_shim
-from .shims.crop_shim import apply_crop_shim
+from .shims.crop_shim import apply_crop_shim, rescale_depth, rescale
 from .shims.geometry_shim import depthmap_to_absolute_camera_coordinates
 from .types import Stage
 from .view_sampler import ViewSampler
@@ -382,8 +382,9 @@ class DatasetWaymo(Dataset):
             intr_aug = True
         else:
             intr_aug = False
-        
-        example = apply_crop_shim(example, (patchsize[0] * 14, patchsize[1] * 14), intr_aug=intr_aug)
+        # example = apply_crop_shim(example, (self.cfg.input_image_shape[0], self.cfg.input_image_shape[1]), intr_aug=intr_aug)
+        example['context']['image'] = torch.stack([rescale(image, (self.cfg.input_image_shape[0]*2, self.cfg.input_image_shape[1])) for image in example['context']['image']])
+        example['context']['depth'] = torch.stack([rescale_depth(depth, (self.cfg.input_image_shape[0]*2, self.cfg.input_image_shape[1])) for depth in example['context']['depth']])
 
         image_size = example["context"]["image"].shape[2:]
         context_intrinsics = example["context"]["intrinsics"].clone().detach().numpy()
