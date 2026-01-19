@@ -330,6 +330,7 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
         image: torch.Tensor,
         global_step: int = 0,
         visualization_dump: Optional[dict] = None,
+        extrinsic_gt: Optional[torch.Tensor] = None,
     ) -> Gaussians:
         device = image.device
         b, v, _, h, w = image.shape
@@ -413,6 +414,8 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
             extrinsic, intrinsic = pose_encoding_to_extri_intri(
                 last_pred_pose_enc, image.shape[-2:]
             )  # only for debug
+
+            extrinsic = extrinsic_gt if extrinsic_gt is not None else extrinsic
 
             if self.cfg.pred_head_type == "point":
                 pts_all, pts_conf = self.point_head(

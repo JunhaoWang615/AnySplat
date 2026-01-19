@@ -5,10 +5,32 @@ import os
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.misc.image_io import save_interpolated_video
+from src.misc.image_io import save_interpolated_video, save_image
 from src.model.ply_export import export_ply
 from src.model.model.anysplat import AnySplat
-from src.utils.image import process_image
+from src.utils.image import process_image_no_crop
+
+
+def load_extr(json_path):
+    import numpy as np
+    import json
+    with open(json_path, "r") as f:
+        data = json.load(f)
+
+    data = data["cameras"]
+    extr = []
+    for it in data.keys():
+        pose = np.asarray(data[it]["extrinsic"], dtype=np.float32)
+        
+        pose = pose.reshape(4, 4)
+
+        blender2opencv = np.array(
+            [[0, 0, 1, 0], [-1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 0, 1]]
+        )
+        opencv_c2w = np.array(pose) @ blender2opencv
+        extr.append(opencv_c2w)
+    extr = torch.from_numpy(np.stack(extr, axis=0)).float().unsqueeze(0)  # [1, K, 4, 4]
+    return extr
 
 def main():
     # Load the model from Hugging Face
@@ -20,14 +42,17 @@ def main():
         param.requires_grad = False
     
     # Load Images
-    image_folder = "examples/vrnerf/waymo/5/images"
+    image_folder = "examples/vrnerf/waymo/70/images"
     images = sorted([os.path.join(image_folder, f) for f in os.listdir(image_folder) if f.lower().endswith(('.png', '.jpg', '.jpeg'))])
-    images = [process_image(img_path) for img_path in images]
+    images = [process_image_no_crop(img_path) for img_path in images]
     images = torch.stack(images, dim=0).unsqueeze(0).to(device) # [1, K, 3, 448, 448]
     b, v, _, h, w = images.shape
-    
+
+    extr = load_extr("examples/vrnerf/waymo/70/calib.json")
+    extr = extr.to(device)
+    extr = extr.inverse()
     # Run Inference
-    gaussians, pred_context_pose = model.inference((images+1)*0.5)
+    gaussians, pred_context_pose = model.inference((images+1)*0.5, extrinsic=extr[:,:,:3,:])
 
     # Save the results
     pred_all_extrinsic = pred_context_pose['extrinsic']

@@ -96,9 +96,10 @@ class AnySplat(nn.Module, huggingface_hub.PyTorchModelHubMixin):
     @torch.no_grad()
     def inference(self,
         context_image: torch.Tensor,
+        extrinsic: Optional[torch.Tensor] = None,
     ):
         self.encoder.distill = False
-        encoder_output = self.encoder(context_image, global_step=0, visualization_dump=None)
+        encoder_output = self.encoder(context_image, global_step=0, visualization_dump=None, extrinsic_gt=extrinsic)
         gaussians, pred_context_pose = encoder_output.gaussians, encoder_output.pred_context_pose
         return gaussians, pred_context_pose
     
