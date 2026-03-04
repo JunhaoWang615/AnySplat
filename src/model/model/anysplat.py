@@ -96,10 +96,11 @@ class AnySplat(nn.Module, huggingface_hub.PyTorchModelHubMixin):
     @torch.no_grad()
     def inference(self,
         context_image: torch.Tensor,
-        extrinsic: Optional[torch.Tensor] = None,
+        extrinsic_gt: Optional[torch.Tensor] = None,
+        intrinsic_gt: Optional[torch.Tensor] = None,
     ):
         self.encoder.distill = False
-        encoder_output = self.encoder(context_image, global_step=0, visualization_dump=None, extrinsic_gt=extrinsic)
+        encoder_output = self.encoder(context_image, global_step=0, visualization_dump=None, extrinsic_gt=extrinsic_gt, intrinsic_gt=intrinsic_gt, use_gt_pose_unproj = extrinsic_gt is not None)
         gaussians, pred_context_pose = encoder_output.gaussians, encoder_output.pred_context_pose
         return gaussians, pred_context_pose
     
@@ -109,10 +110,12 @@ class AnySplat(nn.Module, huggingface_hub.PyTorchModelHubMixin):
         visualization_dump: Optional[dict] = None,
         near: float = 0.01,
         far: float = 100.0,
+        extrinsic_gt: Optional[torch.Tensor] = None,
+        intrinsic_gt: Optional[torch.Tensor] = None,
     ):
         b, v, c, h, w = context_image.shape
         device = context_image.device
-        encoder_output = self.encoder(context_image, global_step, visualization_dump=visualization_dump)
+        encoder_output = self.encoder(context_image, global_step, visualization_dump=visualization_dump, extrinsic_gt=extrinsic_gt, intrinsic_gt=intrinsic_gt)
         gaussians, pred_context_pose = encoder_output.gaussians, encoder_output.pred_context_pose
         output = self.decoder.forward(
             gaussians,

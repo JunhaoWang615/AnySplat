@@ -28,6 +28,7 @@ class VGGT(nn.Module, PyTorchModelHubMixin):
         self,
         images: torch.Tensor,
         query_points: torch.Tensor = None,
+        camera_token_override: torch.Tensor | None = None,
     ):
         """
         Forward pass of the VGGT model.
@@ -60,7 +61,7 @@ class VGGT(nn.Module, PyTorchModelHubMixin):
         if query_points is not None and len(query_points.shape) == 2:
             query_points = query_points.unsqueeze(0)
 
-        aggregated_tokens_list, patch_start_idx = self.aggregator(images)
+        aggregated_tokens_list, patch_start_idx = self.aggregator(images, intermediate_layer_idx=None, camera_token_override=camera_token_override)
 
         predictions = {}
 

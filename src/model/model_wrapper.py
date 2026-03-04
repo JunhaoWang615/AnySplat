@@ -22,6 +22,7 @@ from loss.loss_mse import LossMse
 from model.encoder.vggt.utils.pose_enc import pose_encoding_to_extri_intri
 
 from ..loss.loss_distill import DistillLoss
+from ..loss.loss_pose import PoseLoss
 from src.utils.render import generate_path
 from src.utils.point import get_normal_map
 
@@ -142,6 +143,7 @@ class ModelWrapper(LightningModule):
         self.model = model
         self.data_shim = get_data_shim(self.model.encoder)
         self.losses = nn.ModuleList(losses)
+        self.pose_loss = PoseLoss(rotation_weight=0.2)
         
         if self.model.encoder.pred_pose:
             self.loss_pose = HuberLoss(alpha=self.train_cfg.pose_loss_alpha, delta=self.train_cfg.pose_loss_delta)
@@ -198,7 +200,7 @@ class ModelWrapper(LightningModule):
         # Run the model.
         visualization_dump = None
 
-        encoder_output, output = self.model(context_image, self.global_step, visualization_dump=visualization_dump)
+        encoder_output, output = self.model(context_image, self.global_step, visualization_dump=visualization_dump, extrinsic_gt=batch["context"]["extrinsics"], intrinsic_gt=batch["context"]["intrinsics"])
         gaussians, pred_pose_enc_list, depth_dict = encoder_output.gaussians, encoder_output.pred_pose_enc_list, encoder_output.depth_dict
         pred_context_pose = encoder_output.pred_context_pose
         infos = encoder_output.infos
@@ -244,6 +246,19 @@ class ModelWrapper(LightningModule):
                 loss = loss_fn.forward(output, batch, gaussians, depth_dict, self.global_step)
                 self.log(f"loss/{loss_fn.name}", loss)
                 total_loss = total_loss + loss
+
+            # # pose loss
+            # pred_context_pose
+
+            # batch["context"]["extrinsics"]
+            pose_loss, t_loss, r_loss = self.pose_loss(pred_context_pose['extrinsic'], batch["context"]["extrinsics"])
+            self.log("loss/pose", pose_loss)
+            self.log("loss/translation", t_loss)
+            self.log("loss/rotation", r_loss)
+            total_loss = total_loss + pose_loss
+
+
+
 
             if depth_dict is not None and "depth" in get_cfg()["loss"].keys() and self.train_cfg.cxt_depth_weight > 0:
                 depth_loss_idx = list(get_cfg()["loss"].keys()).index("depth")
@@ -473,7 +488,7 @@ class ModelWrapper(LightningModule):
         assert b == 1
         visualization_dump = {}
 
-        encoder_output, output = self.model((batch["context"]["image"]+1)/2, self.global_step, visualization_dump=visualization_dump)
+        encoder_output, output = self.model((batch["context"]["image"]+1)/2, self.global_step, visualization_dump=visualization_dump, extrinsic_gt=batch["context"]["extrinsics"], intrinsic_gt=batch["context"]["intrinsics"])
         gaussians, pred_pose_enc_list, depth_dict = encoder_output.gaussians, encoder_output.pred_pose_enc_list, encoder_output.depth_dict
         pred_context_pose, distill_infos = encoder_output.pred_context_pose, encoder_output.distill_infos
         infos = encoder_output.infos

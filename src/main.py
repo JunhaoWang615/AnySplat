@@ -167,6 +167,7 @@ def train(cfg_dict: DictConfig):
         num_nodes=cfg.trainer.num_nodes,
         # num_sanity_val_steps=0,
         accelerator="gpu",
+        log_every_n_steps=5,
         logger=logger,
         devices="auto",
         strategy=(

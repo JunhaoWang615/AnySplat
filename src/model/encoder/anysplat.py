@@ -48,6 +48,7 @@ from src.model.encoder.heads.head_modules import TransformerBlockSelfAttn
 from src.model.encoder.vggt.heads.dpt_head import DPTHead
 from src.model.encoder.vggt.layers.mlp import Mlp
 from src.model.encoder.vggt.models.vggt import VGGT
+from src.model.encoder.gt_camera_pose_encoder import GTCameraPoseEncoder
 
 inf = float("inf")
 
@@ -133,6 +134,9 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
         model_full = VGGT.from_pretrained("./model/VGGT")
         # model_full = VGGT()
         self.aggregator = model_full.aggregator.to(torch.bfloat16)
+        # GT camera pose encoder: maps extrinsic or pose encodings -> (B,2,embed_dim)
+        # embed_dim must match aggregator embed dim (VGGT default 1024)
+        self.gt_pose_encoder = GTCameraPoseEncoder(embed_dim=1024)
         self.freeze_backbone = cfg.freeze_backbone
         self.distill = cfg.distill
         self.pred_pose = cfg.pred_pose
@@ -331,6 +335,8 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
         global_step: int = 0,
         visualization_dump: Optional[dict] = None,
         extrinsic_gt: Optional[torch.Tensor] = None,
+        intrinsic_gt: Optional[torch.Tensor] = None,
+        use_gt_pose_unproj: Optional[bool] = False,
     ) -> Gaussians:
         device = image.device
         b, v, _, h, w = image.shape
@@ -403,9 +409,20 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
                 torch.cuda.empty_cache()
 
         with torch.amp.autocast("cuda", enabled=True, dtype=torch.bfloat16):
+            # If caller provides extrinsic_gt or pred pose encodings, encode them to camera tokens
+            camera_override = None
+            if extrinsic_gt is not None and intrinsic_gt is not None:
+                # intrinsic_gt expected shape (B, S, 3, 3) or similar
+                camera_override = self.gt_pose_encoder(h, w, extrinsic_gt, intrinsic_gt)
+            elif extrinsic_gt is not None:
+                # extrinsic_gt expected shape (B, S, 4, 4) or similar
+                camera_override = self.gt_pose_encoder(h, w, extrinsic_gt)
+            
+
             aggregated_tokens_list, patch_start_idx = self.aggregator(
                 image.to(torch.bfloat16),
                 intermediate_layer_idx=self.cfg.intermediate_layer_idx,
+                camera_token_override=camera_override,
             )
 
         with torch.amp.autocast("cuda", enabled=False):
@@ -415,7 +432,9 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
                 last_pred_pose_enc, image.shape[-2:]
             )  # only for debug
 
-            extrinsic = extrinsic_gt if extrinsic_gt is not None else extrinsic
+            # 使用GT位姿进行点云反投影
+            if use_gt_pose_unproj and extrinsic_gt is not None:
+                extrinsic = extrinsic_gt if extrinsic_gt is not None else extrinsic
 
             if self.cfg.pred_head_type == "point":
                 pts_all, pts_conf = self.point_head(
@@ -459,7 +478,7 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
         scene_scale = pts_flat.norm(dim=-1).mean().clip(min=1e-8)
 
         anchor_feats, conf = out[:, :, : self.raw_gs_dim], out[:, :, self.raw_gs_dim]
-
+        # TODO 高斯自适应聚合，减少高斯基元数量   neural_pts 3D点    gaussians
         neural_feats_list, neural_pts_list = [], []
         if self.cfg.voxelize:
             for b_i in range(b):

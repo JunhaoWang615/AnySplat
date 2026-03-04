@@ -187,7 +187,8 @@ class Aggregator(nn.Module):
     def forward(
         self,
         images: torch.Tensor,
-        intermediate_layer_idx: Optional[List[int]] = None
+        intermediate_layer_idx: Optional[List[int]] = None,
+        camera_token_override: Optional[torch.Tensor] = None,
     ) -> Tuple[List[torch.Tensor], int]:
         """
         Args:
@@ -215,11 +216,21 @@ class Aggregator(nn.Module):
             patch_tokens = patch_tokens["x_norm_patchtokens"]
 
         _, P, C = patch_tokens.shape
+        # Build camera token: either learned token expanded, or an override provided by caller
+        if camera_token_override is None:
+            camera_token = slice_expand_and_flatten(self.camera_token, B, S)
+        else:
+            # camera_token_override expected shape (B, S, 1, E)
+            # Create per-sequence tokens: first view uses override[:,0], remaining use override[:,1]
+            # Result should be (B*S, 1, E) to match slice_expand_and_flatten output
+            device = images.device
+            override = camera_token_override.to(device)
 
-        # Expand camera and register tokens to match batch size and sequence length
-        camera_token = slice_expand_and_flatten(self.camera_token, B, S)
+            camera_token = override.view(B * S, 1, -1).to(patch_tokens.dtype)
+        
+
         register_token = slice_expand_and_flatten(self.register_token, B, S)
-
+        # camera_token加载处: [B*S, 1, C]，在此处用GT token替换camera token
         # Concatenate special tokens with patch tokens
         tokens = torch.cat([camera_token, register_token, patch_tokens], dim=1)
 
