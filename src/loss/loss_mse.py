@@ -30,11 +30,15 @@ class LossMse(Loss[LossMseCfg, LossMseCfgWrapper]):
         gaussians: Gaussians,
         depth_dict: dict | None,
         global_step: int,
+        target_flag: bool = False
     ) -> Float[Tensor, ""]:
         # Get alpha and valid mask from inputs
+
+        dataname = "target" if target_flag else "context"
+
         alpha = prediction.alpha
         # valid_mask = torch.ones_like(alpha, device=alpha.device).bool()
-        valid_mask = batch['context']['valid_mask']
+        valid_mask = batch[dataname]['valid_mask']
 
         # # only for objaverse
         # if batch['context']['valid_mask'].sum() > 0:
@@ -52,7 +56,7 @@ class LossMse(Loss[LossMseCfg, LossMseCfgWrapper]):
 
         # Rearrange and mask predicted and ground truth images
         pred_img = prediction.color.permute(0, 1, 3, 4, 2)[mask] 
-        gt_img = ((batch["context"]["image"][:, batch["using_index"]] + 1) / 2).permute(0, 1, 3, 4, 2)[mask]
+        gt_img = ((batch[dataname]["image"][:, batch["using_index"]] + 1) / 2).permute(0, 1, 3, 4, 2)[mask]
 
         delta = pred_img - gt_img
 

@@ -27,7 +27,7 @@ from src.model.encoder.vggt.utils.geometry import (
 from src.model.encoder.vggt.utils.pose_enc import pose_encoding_to_extri_intri
 from src.utils.geometry import get_rel_pos  # used for model hub
 from torch import nn, Tensor
-from torch_scatter import scatter_add, scatter_max
+from torch_scatter import scatter_add, scatter_max, scatter_mean
 
 from ..types import Gaussians
 from .backbone import Backbone, BackboneCfg, get_backbone
@@ -329,6 +329,50 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
 
         return voxel_pts, voxel_feats
 
+    def adaptive_voxelization(self, voxel_pts_s, voxel_feats_s, conf, s_size, size_times, var_threshold=0.05):
+        """
+        s_size: 小体素尺寸 (e.g., 0.2m)
+        l_size: 大体素尺寸 (e.g., 0.8m, 必须是s_size的倍数)
+        """
+
+        l_size = s_size * size_times
+        
+        # 2. 计算这些小体素落在哪一个“大体素”里
+        # voxel_pts_s 是小体素的中心坐标 [N_s, 3]
+        large_voxel_indices = (voxel_pts_s / l_size).round().int()
+        unique_l_voxels, l_inverse_indices = torch.unique(
+            large_voxel_indices, dim=0, return_inverse=True
+        )
+
+        # 3. 计算大体素内部的小体素特征方差
+        # Var(X) = E[X^2] - (E[X])^2
+        mean_f = scatter_mean(voxel_feats_s, l_inverse_indices, dim=0)          # [N_l, C]
+        mean_f_sq = scatter_mean(voxel_feats_s**2, l_inverse_indices, dim=0)   # [N_l, C]
+        
+        # 计算通道平均方差
+        voxel_var = (mean_f_sq - mean_f**2).mean(dim=-1)  # [N_l]
+
+        # 4. 决策：哪些大体素足够平滑（低方差）
+        is_smooth = voxel_var < var_threshold  # [N_l] bool mask
+        
+        # 映射回小体素索引
+        keep_small_mask = ~is_smooth[l_inverse_indices]
+        
+        # 5. 组装最终结果
+        # 复杂区域：保留原始的小体素
+        final_pts_complex = voxel_pts_s[keep_small_mask]
+        final_feats_complex = voxel_feats_s[keep_small_mask]
+        
+        # 平滑区域：只取大体素的平均值 (为了对齐，计算大体素的中心点)
+        large_pts_mean = scatter_mean(voxel_pts_s, l_inverse_indices, dim=0)  # [N_l, 3]
+        final_pts_smooth = large_pts_mean[is_smooth]
+        final_feats_smooth = mean_f[is_smooth]
+        
+        # 合并结果
+        res_pts = torch.cat([final_pts_complex, final_pts_smooth], dim=0)
+        res_feats = torch.cat([final_feats_complex, final_feats_smooth], dim=0)
+        return res_pts, res_feats
+
     def forward(
         self,
         image: torch.Tensor,
@@ -482,12 +526,13 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
         neural_feats_list, neural_pts_list = [], []
         if self.cfg.voxelize:
             for b_i in range(b):
-                neural_pts, neural_feats = self.voxelizaton_with_fusion(
+                neural_pts_base, neural_feats_base = self.voxelizaton_with_fusion(
                     anchor_feats[b_i],
                     pts_all[b_i].permute(0, 3, 1, 2).contiguous(),
                     self.voxel_size,
                     conf=conf[b_i],
                 )
+                neural_pts, neural_feats = self.adaptive_voxelization(neural_pts_base, neural_feats_base, conf[b_i], self.voxel_size, 4)
                 neural_feats_list.append(neural_feats)
                 neural_pts_list.append(neural_pts)
         else:

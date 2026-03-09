@@ -386,6 +386,9 @@ class DatasetWaymo(Dataset):
         example['context']['image'] = torch.stack([rescale(image, (self.cfg.input_image_shape[0]*2, self.cfg.input_image_shape[1])) for image in example['context']['image']])
         example['context']['depth'] = torch.stack([rescale_depth(depth, (self.cfg.input_image_shape[0]*2, self.cfg.input_image_shape[1])) for depth in example['context']['depth']])
 
+        example['target']['image'] = torch.stack([rescale(image, (self.cfg.input_image_shape[0]*2, self.cfg.input_image_shape[1])) for image in example['target']['image']])
+        example['target']['depth'] = torch.stack([rescale_depth(depth, (self.cfg.input_image_shape[0]*2, self.cfg.input_image_shape[1])) for depth in example['target']['depth']])
+
         image_size = example["context"]["image"].shape[2:]
         context_intrinsics = example["context"]["intrinsics"].clone().detach().numpy()
         context_intrinsics[:, 0] = context_intrinsics[:, 0] * image_size[1]

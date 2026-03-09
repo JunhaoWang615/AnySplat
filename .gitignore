@@ -194,3 +194,11 @@ anysplat_ckpt*
 input_images_*
 tmp_scripts/
 *v2*
+
+/tmp
+/output
+/examples
+/datasets
+/model
+
+

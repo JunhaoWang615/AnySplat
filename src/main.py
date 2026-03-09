@@ -191,7 +191,9 @@ def train(cfg_dict: DictConfig):
     
     model = get_model(cfg.model.encoder, cfg.model.decoder)
     
-    model = load_weights_into_model(model, "./model/AnySplat", device="cuda" if torch.cuda.is_available() else "cpu")
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    device = torch.device(f"cuda:{local_rank}")
+    model = load_weights_into_model(model, "./model/AnySplat", device=device)
     model_wrapper = ModelWrapper(
         cfg.optimizer,
         cfg.test,

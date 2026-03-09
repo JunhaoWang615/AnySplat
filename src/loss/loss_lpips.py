@@ -43,8 +43,11 @@ class LossLpips(Loss[LossLpipsCfg, LossLpipsCfgWrapper]):
         gaussians: Gaussians,
         depth_dict: dict | None,
         global_step: int,
+        target_flag: bool = False
     ) -> Float[Tensor, ""]:
-        image = (batch["context"]["image"] + 1) / 2
+        
+        dataname = "target" if target_flag else "context"
+        image = (batch[dataname]["image"] + 1) / 2
         
         # Before the specified step, don't apply the loss.
         if global_step < self.cfg.apply_after_step:
@@ -52,7 +55,7 @@ class LossLpips(Loss[LossLpipsCfg, LossLpipsCfgWrapper]):
         
         if self.cfg.mask or self.cfg.alpha or self.cfg.conf:
             if self.cfg.mask:
-                mask = batch["context"]["valid_mask"]
+                mask = batch[dataname]["valid_mask"]
             elif self.cfg.alpha:
                 mask = prediction.alpha
             elif self.cfg.conf:

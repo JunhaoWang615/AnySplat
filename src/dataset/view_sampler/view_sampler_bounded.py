@@ -138,11 +138,21 @@ class ViewSamplerBounded(ViewSampler[ViewSamplerBoundedCfg]):
         overlap = torch.tensor([0.5], dtype=torch.float32, device=device)  # dummy
         num_views = extrinsics.shape[0]
         all_indices = torch.arange(num_views, device=device)
-        return (
-            all_indices,
-            all_indices,
-            overlap
-        )
+        if len(all_indices) > 5:
+            input_indices, target_indices = torch.chunk(all_indices, chunks=2, dim=0)
+            print(f"Input indices: {input_indices}")
+            print(f"Target indices: {target_indices}")
+            return (
+                input_indices,
+                target_indices,
+                overlap
+            )
+        else:
+            return (
+                all_indices,
+                all_indices,
+                overlap
+            )
 
     @property
     def num_context_views(self) -> int:

@@ -56,7 +56,7 @@ from ..visualization.camera_trajectory.wobble import (
 from ..visualization.color_map import apply_color_map_to_image
 from ..visualization.layout import add_border, hcat, vcat
 # from ..visualization.validation_in_3d import render_cameras, render_projections
-from .decoder.decoder import Decoder, DepthRenderingMode
+from .decoder.decoder import Decoder, DepthRenderingMode, DecoderOutput
 from .encoder import Encoder
 from .encoder.visualization.encoder_visualizer import EncoderVisualizer
 from .ply_export import export_ply
@@ -200,7 +200,40 @@ class ModelWrapper(LightningModule):
         # Run the model.
         visualization_dump = None
 
-        encoder_output, output = self.model(context_image, self.global_step, visualization_dump=visualization_dump, extrinsic_gt=batch["context"]["extrinsics"], intrinsic_gt=batch["context"]["intrinsics"])
+        device = context_image.device
+        encoder_output = self.model.encoder(context_image, self.global_step, visualization_dump=visualization_dump, extrinsic_gt=batch["context"]["extrinsics"], intrinsic_gt=batch["context"]["intrinsics"])
+        gaussians, pred_context_pose = encoder_output.gaussians, encoder_output.pred_context_pose
+        # output = self.model.decoder.forward(
+        #     gaussians,
+        #     pred_context_pose['extrinsic'],
+        #     pred_context_pose["intrinsic"],
+        #     torch.ones(1, v, device=device) * 0.01,
+        #     torch.ones(1, v, device=device) * 100,
+        #     (h, w),
+        #     "depth",
+        # )
+
+        contact_pose = torch.cat((pred_context_pose['extrinsic'], batch["context"]["extrinsics"]), dim = 1)
+        contact_intr = torch.cat((pred_context_pose["intrinsic"], batch["context"]["intrinsics"]), dim = 1)
+
+        contact_output = self.model.decoder.forward(
+            gaussians,
+            contact_pose,
+            contact_intr,
+            torch.ones(1, v, device=device) * 0.01,
+            torch.ones(1, v, device=device) * 100,
+            (h, w),
+            "depth",
+        )
+
+        contact_alpha = contact_output.alpha
+        contact_color = contact_output.color
+        contact_depth = contact_output.depth
+
+        output = DecoderOutput( contact_color[:, :5, :, :], contact_depth[:, :5, :, :], contact_alpha[:, :5, :, :], lod_rendering=None)
+
+        target_output = DecoderOutput(contact_color[:, 5:, :, :], contact_depth[:, 5:, :, :], contact_alpha[:, 5:, :, :], lod_rendering=None)
+
         gaussians, pred_pose_enc_list, depth_dict = encoder_output.gaussians, encoder_output.pred_pose_enc_list, encoder_output.depth_dict
         pred_context_pose = encoder_output.pred_context_pose
         infos = encoder_output.infos
@@ -303,14 +336,65 @@ class ModelWrapper(LightningModule):
         # Tell the data loader processes about the current step.
         if self.step_tracker is not None:
             self.step_tracker.set_step(self.global_step)
+
+        next_frame_loss = self.next_frame_loss(batch, encoder_output, target_output)
+        total_loss = total_loss + next_frame_loss
         
         del batch
+        del encoder_output
         if self.global_step % 25 == 0:
             gc.collect()
             torch.cuda.empty_cache()
 
+
+
         return total_loss
     
+    def next_frame_loss(self, batch, encoder_output, output):
+        b, v, c, h, w = batch["context"]["image"].shape
+        context_image = (batch["context"]["image"] + 1) / 2
+        
+        # Run the model.       
+
+        gaussians, pred_pose_enc_list, depth_dict = encoder_output.gaussians, encoder_output.pred_pose_enc_list, encoder_output.depth_dict
+        pred_context_pose = encoder_output.pred_context_pose
+        infos = encoder_output.infos
+        distill_infos = encoder_output.distill_infos
+        depth_dict['distill_infos'] = distill_infos
+        num_context_views = pred_context_pose['extrinsic'].shape[1]
+
+        using_index = torch.arange(num_context_views, device=gaussians.means.device)
+        batch["using_index"] = using_index
+        # export_ply(gaussians.means[0], gaussians.scales[0], gaussians.rotations[0], gaussians.harmonics[0], gaussians.opacities[0], Path("gaussians.ply"))
+        # align the target pose
+
+        num_context_views = pred_context_pose['extrinsic'].shape[1]
+        using_index = torch.arange(num_context_views, device=gaussians.means.device)
+        batch["using_index"] = using_index
+        
+        target_gt = (batch["target"]["image"] + 1) / 2
+
+        # Compute metrics.
+        psnr_probabilistic = compute_psnr(
+            rearrange(target_gt, "b v c h w -> (b v) c h w"),
+            rearrange(output.color, "b v c h w -> (b v) c h w"),
+        )
+        self.log("train/target_psnr_probabilistic", psnr_probabilistic.mean())
+        # Compute and log loss.
+        total_loss = 0
+
+        depth_dict['distill_infos'] = distill_infos
+        with torch.amp.autocast('cuda', enabled=False):
+            for loss_fn in self.losses:
+                if loss_fn.name == "depth_consis" or loss_fn.name == "lpips":
+                    continue
+                loss = loss_fn.forward(output, batch, gaussians, depth_dict, self.global_step, target_flag=True)
+                self.log(f"loss/target_{loss_fn.name}", loss)
+                total_loss = total_loss + loss
+
+        return total_loss
+        
+
     def on_after_backward(self):
         total_norm = 0.0
         counter = 0
@@ -331,14 +415,27 @@ class ModelWrapper(LightningModule):
         
         # Render Gaussians.
         with self.benchmarker.time("encoder"):
-            gaussians = self.model.encoder(
+            encoder_output = self.model.encoder(
                 (batch["context"]["image"]+1)/2,
                 self.global_step,
-            )[0]
+                visualization_dump=None,
+                extrinsic_gt=batch["context"]["extrinsics"],
+                intrinsic_gt=batch["context"]["intrinsics"]
+            )
+            
+            gaussians = encoder_output.gaussians
+            gaussians, pred_pose_enc_list, depth_dict = encoder_output.gaussians, encoder_output.pred_pose_enc_list, encoder_output.depth_dict
+            pred_context_pose = encoder_output.pred_context_pose
+            distill_infos = encoder_output.distill_infos
+            depth_dict['distill_infos'] = distill_infos
+            num_context_views = pred_context_pose['extrinsic'].shape[1]
+
+            using_index = torch.arange(num_context_views, device=gaussians.means.device)
+            batch["using_index"] = using_index
         # export_ply(gaussians.means[0], gaussians.scales[0], gaussians.rotations[0], gaussians.harmonics[0], gaussians.opacities[0], Path("gaussians.ply"))
         # align the target pose
         if self.test_cfg.align_pose:
-            output = self.test_step_align(batch, gaussians)
+            output = self.test_step_align(batch, gaussians, depth_dict)
         else:
             with self.benchmarker.time("decoder", num_calls=v):
                 output = self.model.decoder.forward(
@@ -352,8 +449,8 @@ class ModelWrapper(LightningModule):
         
         # compute scores
         if self.test_cfg.compute_scores:
-            overlap = batch["context"]["overlap"][0]
-            overlap_tag = get_overlap_tag(overlap)
+            # overlap = batch["context"]["overlap"][0]
+            # overlap_tag = get_overlap_tag(overlap)
 
             rgb_pred = output.color[0]
             rgb_gt = batch["target"]["image"][0]
@@ -365,7 +462,7 @@ class ModelWrapper(LightningModule):
             methods = ['ours']
 
             self.log_dict(all_metrics)
-            self.print_preview_metrics(all_metrics, methods, overlap_tag=overlap_tag)
+            self.print_preview_metrics(all_metrics, methods)
         
         # Save images.
         (scene,) = batch["scene"]
@@ -384,6 +481,7 @@ class ModelWrapper(LightningModule):
 
         if self.test_cfg.save_compare:
             # Construct comparison image.
+            print(f"Saving comparison image for scene {scene} at step {self.global_step} in {path}.")
             context_img = inverse_normalize(batch["context"]["image"][0])
             comparison = hcat(
                 add_label(vcat(*context_img), "Context"),
@@ -392,7 +490,7 @@ class ModelWrapper(LightningModule):
             )
             save_image(comparison, path / f"{scene}.png")
                 
-    def test_step_align(self, batch, gaussians):
+    def test_step_align(self, batch, gaussians, depth_dict):
         self.model.encoder.eval()
         # freeze all parameters
         for param in self.model.encoder.parameters():
@@ -446,7 +544,7 @@ class ModelWrapper(LightningModule):
                     # Compute and log loss.
                     total_loss = 0
                     for loss_fn in self.losses:
-                        loss = loss_fn.forward(output, batch, gaussians, self.global_step)
+                        loss = loss_fn.forward(output, batch, gaussians, depth_dict, self.global_step)
                         total_loss = total_loss + loss
 
                     total_loss.backward()

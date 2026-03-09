@@ -9,7 +9,11 @@ defaults:
 wandb:
   name: waymo
   tags: [waymo, 448x448]
-  
+  mode: disabled
+
+
+mode: test
+
 model:
   encoder:
     gs_params_head_type: dpt_gs
@@ -63,7 +67,7 @@ trainer:
   precision: bf16-mixed
 
 checkpointing:
-  load: null
+  load: output/exp_waymo/2026-03-06_22-51-22/checkpoints/epoch_4-step_5000.ckpt
   every_n_train_steps: 1000
   save_weights_only: false
   save_top_k: 3
@@ -75,6 +79,8 @@ train:
   weight_pose: 10.0
   weight_depth: 1.0
   weight_normal: 0.0
+
+
 
 hydra:
   run:
